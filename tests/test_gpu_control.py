@@ -3,8 +3,8 @@
 import pytest
 from pathlib import Path
 from unittest.mock import Mock, patch, MagicMock
-from nvidia_smi_manager.core.gpu_control import GPUController, GPUProfile
-from nvidia_smi_manager.core.config import Config
+from nv_smi_manager.core.gpu_control import GPUController, GPUProfile
+from nv_smi_manager.core.config import Config
 
 
 class TestGPUProfile:
@@ -37,7 +37,7 @@ class TestGPUProfile:
 class TestGPUController:
     """Test GPUController class"""
     
-    @patch('nvidia_smi_manager.core.gpu_control.subprocess.run')
+    @patch('nv_smi_manager.core.gpu_control.subprocess.run')
     def test_check_nvidia_settings_success(self, mock_run):
         """Test successful nvidia-settings check"""
         mock_run.return_value = MagicMock(returncode=0)
@@ -46,7 +46,7 @@ class TestGPUController:
         controller = GPUController()
         assert controller is not None
     
-    @patch('nvidia_smi_manager.core.gpu_control.subprocess.run')
+    @patch('nv_smi_manager.core.gpu_control.subprocess.run')
     def test_check_nvidia_settings_failure(self, mock_run):
         """Test failed nvidia-settings check"""
         mock_run.side_effect = FileNotFoundError()
@@ -54,7 +54,7 @@ class TestGPUController:
         with pytest.raises(RuntimeError, match="nvidia-settings not found"):
             GPUController()
     
-    @patch('nvidia_smi_manager.core.gpu_control.subprocess.run')
+    @patch('nv_smi_manager.core.gpu_control.subprocess.run')
     def test_set_core_clock_offset_valid(self, mock_run):
         """Test setting valid core clock offset"""
         mock_run.return_value = MagicMock(returncode=0)
@@ -65,7 +65,7 @@ class TestGPUController:
         assert result is True
         mock_run.assert_called()
     
-    @patch('nvidia_smi_manager.core.gpu_control.subprocess.run')
+    @patch('nv_smi_manager.core.gpu_control.subprocess.run')
     def test_set_core_clock_offset_out_of_bounds(self, mock_run):
         """Test setting out-of-bounds core clock offset"""
         mock_run.return_value = MagicMock(returncode=0)
@@ -80,7 +80,7 @@ class TestGPUController:
         with pytest.raises(ValueError, match="out of bounds"):
             controller.set_core_clock_offset(0, 150)
     
-    @patch('nvidia_smi_manager.core.gpu_control.subprocess.run')
+    @patch('nv_smi_manager.core.gpu_control.subprocess.run')
     def test_set_core_clock_offset_skip_validation(self, mock_run):
         """Test setting offset while skipping validation"""
         mock_run.return_value = MagicMock(returncode=0)
@@ -91,7 +91,7 @@ class TestGPUController:
         # Should not raise error when validate=False
         assert result is True
     
-    @patch('nvidia_smi_manager.core.gpu_control.subprocess.run')
+    @patch('nv_smi_manager.core.gpu_control.subprocess.run')
     def test_set_memory_clock_offset_valid(self, mock_run):
         """Test setting valid memory clock offset"""
         mock_run.return_value = MagicMock(returncode=0)
@@ -101,7 +101,7 @@ class TestGPUController:
         
         assert result is True
     
-    @patch('nvidia_smi_manager.core.gpu_control.subprocess.run')
+    @patch('nv_smi_manager.core.gpu_control.subprocess.run')
     def test_set_power_limit_valid(self, mock_run):
         """Test setting valid power limit"""
         mock_run.return_value = MagicMock(returncode=0)
@@ -111,7 +111,7 @@ class TestGPUController:
         
         assert result is True
     
-    @patch('nvidia_smi_manager.core.gpu_control.subprocess.run')
+    @patch('nv_smi_manager.core.gpu_control.subprocess.run')
     def test_set_power_limit_out_of_bounds(self, mock_run):
         """Test setting out-of-bounds power limit"""
         mock_run.return_value = MagicMock(returncode=0)
@@ -121,7 +121,7 @@ class TestGPUController:
         with pytest.raises(ValueError, match="out of bounds"):
             controller.set_power_limit(0, 1000)
     
-    @patch('nvidia_smi_manager.core.gpu_control.subprocess.run')
+    @patch('nv_smi_manager.core.gpu_control.subprocess.run')
     def test_apply_profile(self, mock_run):
         """Test applying a complete GPU profile"""
         mock_run.return_value = MagicMock(returncode=0)
@@ -138,7 +138,7 @@ class TestGPUController:
         assert result is True
         assert mock_run.call_count > 0
     
-    @patch('nvidia_smi_manager.core.gpu_control.subprocess.run')
+    @patch('nv_smi_manager.core.gpu_control.subprocess.run')
     def test_reset_gpu(self, mock_run):
         """Test resetting GPU to default settings"""
         mock_run.return_value = MagicMock(returncode=0)
@@ -150,7 +150,7 @@ class TestGPUController:
         # Should call nvidia-settings at least twice (core and memory reset)
         assert mock_run.call_count >= 2
     
-    @patch('nvidia_smi_manager.core.gpu_control.subprocess.run')
+    @patch('nv_smi_manager.core.gpu_control.subprocess.run')
     def test_nvidia_settings_permission_denied(self, mock_run, capsys):
         """Test handling of permission denied errors"""
         mock_run.return_value = MagicMock(
@@ -165,7 +165,7 @@ class TestGPUController:
         captured = capsys.readouterr()
         assert "Permission denied" in captured.out or "Permission denied" in captured.err
     
-    @patch('nvidia_smi_manager.core.gpu_control.subprocess.run')
+    @patch('nv_smi_manager.core.gpu_control.subprocess.run')
     def test_query_nvidia_settings(self, mock_run):
         """Test querying nvidia-settings"""
         mock_run.return_value = MagicMock(
@@ -178,7 +178,7 @@ class TestGPUController:
         
         assert result == 50
     
-    @patch('nvidia_smi_manager.core.gpu_control.subprocess.run')
+    @patch('nv_smi_manager.core.gpu_control.subprocess.run')
     def test_query_nvidia_settings_invalid(self, mock_run):
         """Test querying invalid nvidia-settings response"""
         mock_run.return_value = MagicMock(
@@ -199,7 +199,7 @@ class TestGPUController:
             "power_limit_range": (100, 400),
         }
         
-        with patch('nvidia_smi_manager.core.gpu_control.subprocess.run'):
+        with patch('nv_smi_manager.core.gpu_control.subprocess.run'):
             controller = GPUController(safety_limits=custom_limits)
             assert controller.safety_limits == custom_limits
 

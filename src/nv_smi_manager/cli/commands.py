@@ -9,11 +9,11 @@ import time
 import sys
 from pathlib import Path
 
-from nvidia_smi_manager.core.gpu_monitor import GPUMonitor
-from nvidia_smi_manager.core.system_info import SystemMonitor
-from nvidia_smi_manager.core.config import Config
-from nvidia_smi_manager.core.gpu_control import GPUController
-from nvidia_smi_manager.utils.formatters import format_memory, format_power, format_temperature
+from nv_smi_manager.core.gpu_monitor import GPUMonitor
+from nv_smi_manager.core.system_info import SystemMonitor
+from nv_smi_manager.core.config import Config
+from nv_smi_manager.core.gpu_control import GPUController
+from nv_smi_manager.utils.formatters import format_memory, format_power, format_temperature
 
 console = Console()
 
@@ -21,7 +21,7 @@ console = Console()
 @click.group()
 @click.version_option()
 def main():
-    """Nvidia-SMI Manager - GPU monitoring and management for NixOS"""
+    """NV-SMI Manager - GPU monitoring and management for NixOS"""
     pass
 
 
@@ -98,7 +98,7 @@ def _build_status_layout(monitor: GPUMonitor) -> Layout:
     table_content = _build_gpu_table(gpus)
     
     layout["header"].update(
-        f"[bold blue]Nvidia-SMI Manager[/bold blue] - Press Ctrl+C to exit"
+        f"[bold blue]NV-SMI Manager[/bold blue] - Press Ctrl+C to exit"
     )
     layout["body"].update(table_content)
     layout["footer"].update(

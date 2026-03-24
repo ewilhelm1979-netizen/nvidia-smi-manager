@@ -3,7 +3,7 @@ requires = ["setuptools>=65.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "nvidia-smi-manager"
+name = "nv-smi-manager"
 version = "0.1.0"
 description = "A CLI-based GPU monitor and manager for NixOS with real-time monitoring and system integration"
 readme = "README.md"
@@ -44,7 +44,7 @@ dev = [
 ]
 
 [project.scripts]
-nvidia-smi-manager = "nvidia_smi_manager.cli.commands:main"
+nv-smi-manager = "nv_smi_manager.cli.commands:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

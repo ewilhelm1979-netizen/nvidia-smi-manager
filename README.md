@@ -1,6 +1,6 @@
-# Nvidia-SMI Manager für NixOS
+# NV-SMI Manager für NixOS
 
-Ein moderner CLI-basierter GPU Monitor und Manager für NixOS mit Echtzeit-Überwachung, Systemintegration und umfangreicher Funktionalität.
+Ein moderner CLI-basierter GPU Monitor und Manager für NixOS mit Echtzeit-Überwachung, Systemintegration, Undervolting und Overclocking.
 
 ## Features
 

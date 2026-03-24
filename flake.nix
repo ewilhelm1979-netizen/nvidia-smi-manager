@@ -1,5 +1,5 @@
 {
-  description = "Nvidia-SMI Manager for NixOS";
+  description = "NV-SMI Manager for NixOS";
 
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
@@ -15,7 +15,7 @@
       in
       {
         packages.default = python.pkgs.buildPythonPackage {
-          pname = "nvidia-smi-manager";
+          pname = "nv-smi-manager";
           version = "0.1.0";
           src = ./.;
 
@@ -39,7 +39,7 @@
         };
 
         devShells.default = pkgs.mkShell {
-          name = "nvidia-smi-manager-dev";
+          name = "nv-smi-manager-dev";
           buildInputs = with pkgs; [
             python311
             python311Packages.pip
