@@ -10,52 +10,34 @@
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
-        python = pkgs.python311;
-        pythonPackages = python.pkgs;
+        pythonEnv = pkgs.python312.withPackages (ps: with ps; [
+          click
+          psutil
+          py3nvml
+          rich
+          pytest
+          pytest-cov
+          black
+          isort
+          flake8
+          mypy
+        ]);
       in
       {
-        packages.default = python.pkgs.buildPythonPackage {
-          pname = "nv-smi-manager";
-          version = "0.1.0";
-          src = ./.;
-
-          propagatedBuildInputs = with python.pkgs; [
-            click
-            psutil
-            py3nvml
-            rich
-          ];
-
-          nativeBuildInputs = with python.pkgs; [
-            setuptools
-            wheel
-          ];
-
-          doCheck = true;
-          checkInputs = with python.pkgs; [
-            pytest
-            pytest-cov
-          ];
-        };
-
         devShells.default = pkgs.mkShell {
           name = "nv-smi-manager-dev";
-          buildInputs = with pkgs; [
-            python311
-            python311Packages.pip
-            python311Packages.black
-            python311Packages.isort
-            python311Packages.flake8
-            python311Packages.mypy
-            python311Packages.pytest
-            python311Packages.pytest-cov
-            cuda-toolkit
+          buildInputs = [
+            pythonEnv
           ];
 
           shellHook = ''
             export PYTHONPATH="${self}/src:$PYTHONPATH"
-            echo "Nvidia-SMI Manager Development Environment"
-            echo "Run: pip install -e '.[dev]' to install in development mode"
+            echo "❯ NV-SMI Manager Development Environment (Python 3.12)"
+            echo "  Run: nv-smi-manager status"
+            echo "  Test: pytest tests/ -v"
+            echo "  Format: black src/ tests/ --line-length=100"
+            echo ""
+            echo "  Project: https://github.com/ewilhelm1979-netizen/nvidia-smi-manager"
           '';
         };
       }
