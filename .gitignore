@@ -122,13 +122,14 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
-# IDE
-.vscode/
+# IDEs (exclude .vscode to track shared Python configuration)
 .idea/
 *.swp
 *.swo
 *~
 .DS_Store
+
+# .vscode is tracked for project-specific Python debugging and linting config
 
 # NixOS
 flake.lock
