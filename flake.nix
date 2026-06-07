@@ -1,45 +1,37 @@
 {
-  description = "NV-SMI Manager for NixOS";
+  description = "Native Rust NVIDIA GPU Manager for NixOS";
 
-  inputs = {
-    nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
-    flake-utils.url = "github:numtide/flake-utils";
-  };
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
-  outputs = { self, nixpkgs, flake-utils }:
-    flake-utils.lib.eachDefaultSystem (system:
-      let
-        pkgs = nixpkgs.legacyPackages.${system};
-        pythonEnv = pkgs.python312.withPackages (ps: with ps; [
-          click
-          psutil
-          py3nvml
-          rich
-          pytest
-          pytest-cov
-          black
-          isort
-          flake8
-          mypy
-        ]);
-      in
-      {
-        devShells.default = pkgs.mkShell {
-          name = "nv-smi-manager-dev";
-          buildInputs = [
-            pythonEnv
-          ];
+  outputs = { self, nixpkgs }:
+    let
+      supportedSystems = [ "x86_64-linux" "aarch64-linux" ];
+      forAllSystems = nixpkgs.lib.genAttrs supportedSystems;
+      overlay = final: prev: {
+        nvidia-gpu-manager = final.callPackage ./nix/package.nix { };
+      };
+    in
+    {
+      overlays.default = overlay;
 
-          shellHook = ''
-            export PYTHONPATH="${self}/src:$PYTHONPATH"
-            echo "❯ NV-SMI Manager Development Environment (Python 3.12)"
-            echo "  Run: nv-smi-manager status"
-            echo "  Test: pytest tests/ -v"
-            echo "  Format: black src/ tests/ --line-length=100"
-            echo ""
-            echo "  Project: https://github.com/ewilhelm1979-netizen/nvidia-smi-manager"
-          '';
-        };
-      }
-    );
+      packages = forAllSystems (system:
+        let pkgs = import nixpkgs { inherit system; overlays = [ overlay ]; };
+        in {
+          default = pkgs.nvidia-gpu-manager;
+          nvidia-gpu-manager = pkgs.nvidia-gpu-manager;
+        });
+
+      devShells = forAllSystems (system:
+        let pkgs = import nixpkgs { inherit system; };
+        in {
+          default = pkgs.mkShell {
+            packages = [ pkgs.cargo pkgs.rustc pkgs.rustfmt ];
+          };
+        });
+
+      nixosModules.default = { pkgs, ... }: {
+        imports = [ ./nix/module.nix ];
+        nixpkgs.overlays = [ overlay ];
+      };
+    };
 }

@@ -1,0 +1,9 @@
+[package]
+name = "nvidia-gpu-manager"
+version = "0.1.0"
+edition = "2021"
+description = "A small NVIDIA GPU manager for NixOS"
+license = "MIT"
+
+[dependencies]
+eframe = { version = "0.31", default-features = false, features = ["default_fonts", "glow", "wayland", "x11"] }
