@@ -145,6 +145,16 @@ fn privileged_smi(args: &[String]) -> Result<(), String> {
     } else {
         format!("exit status {}", output.status)
     };
+    if detail.contains("Insufficient Permissions") {
+        return Err(format!(
+            "nvidia-smi ran without administrator privileges. Make sure a Polkit authentication agent is running and approve the prompt. Driver response: {detail}"
+        ));
+    }
+    if detail.contains("Not authorized") || detail.contains("Authentication") {
+        return Err(format!(
+            "Polkit did not authorize the power-limit change: {detail}"
+        ));
+    }
     Err(format!(
         "nvidia-smi rejected the requested change: {detail}"
     ))
@@ -299,7 +309,7 @@ impl ManagerApp {
         match read_stats() {
             Ok(stats) => {
                 if self.stats.is_none() && stats.power_limit > 0.0 {
-                    self.power_limit = stats.power_limit as u32;
+                    self.power_limit = stats.power_limit.round() as u32;
                 }
                 push(&mut self.history_temp, stats.temp);
                 push(&mut self.history_gpu, stats.gpu_util);
@@ -316,15 +326,26 @@ impl ManagerApp {
     }
 
     fn apply_power_limit(&mut self) {
-        self.status = format!("Setting power limit to {} W...", self.power_limit);
+        let requested = self.power_limit;
+        if let Some(stats) = &self.stats {
+            let min = stats.power_min.max(1.0).ceil() as u32;
+            let max = stats.power_max.floor().max(min as f32) as u32;
+            if requested < min || requested > max {
+                self.status =
+                    format!("Power limit must be between {min} W and {max} W for this GPU");
+                self.power_limit = requested.clamp(min, max);
+                return;
+            }
+        }
+
+        self.status = format!("Setting power limit to {requested} W...");
         match privileged_smi(&[
             "-i".to_owned(),
             "0".to_owned(),
-            "-pl".to_owned(),
-            self.power_limit.to_string(),
+            format!("--power-limit={requested}"),
         ]) {
             Ok(()) => {
-                self.status = format!("Power limit set to {} W", self.power_limit);
+                self.status = format!("Power limit set to {requested} W");
                 self.refresh();
             }
             Err(error) => self.status = format!("Power limit failed: {error}"),
@@ -339,7 +360,7 @@ impl ManagerApp {
             self.status = "The driver did not report a default power limit".to_owned();
             return;
         }
-        self.power_limit = stats.power_default as u32;
+        self.power_limit = stats.power_default.round() as u32;
         self.apply_power_limit();
     }
 
@@ -518,8 +539,8 @@ impl ManagerApp {
         });
         ui.add_space(12.0);
         card(ui, "SET POWER LIMIT", |ui| {
-            let min = stats.power_min.max(1.0) as u32;
-            let max = stats.power_max.max(min as f32) as u32;
+            let min = stats.power_min.max(1.0).ceil() as u32;
+            let max = stats.power_max.floor().max(min as f32) as u32;
             ui.colored_label(
                 ORANGE,
                 RichText::new(format!("{} W", self.power_limit)).size(23.0),

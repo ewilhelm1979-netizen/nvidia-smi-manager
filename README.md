@@ -50,6 +50,9 @@ sudo nixos-rebuild switch --flake /etc/nixos#my-host
 The app is installed as `nvidia-gpu-manager` and also appears in desktop
 application launchers. The module enables Polkit so that changing power and fan
 settings can request authorization without a passwordless `sudoers` entry.
+Your desktop session still needs a running Polkit authentication agent. GNOME
+and KDE usually provide one automatically; minimal window managers may need one
+to be started explicitly, for example `polkit-gnome-authentication-agent-1`.
 
 ## Hardware notes
 
