@@ -1,7 +1,6 @@
 { lib
 , rustPlatform
 , makeWrapper
-, polkit
 , wayland
 , libxkbcommon
 , libGL
@@ -39,7 +38,6 @@ rustPlatform.buildRustPackage {
 
   postInstall = ''
     wrapProgram $out/bin/nvidia-gpu-manager \
-      --prefix PATH : ${lib.makeBinPath [ polkit ]} \
       --prefix LD_LIBRARY_PATH : ${lib.makeLibraryPath runtimeLibraries}
 
     install -Dm644 ${../nvidia-gpu-manager.desktop} \

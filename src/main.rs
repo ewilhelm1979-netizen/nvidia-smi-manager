@@ -126,8 +126,20 @@ fn nvidia_smi_path() -> &'static str {
     "nvidia-smi"
 }
 
+fn pkexec_path() -> &'static str {
+    for path in [
+        "/run/wrappers/bin/pkexec",
+        "/run/current-system/sw/bin/pkexec",
+    ] {
+        if std::path::Path::new(path).exists() {
+            return path;
+        }
+    }
+    "pkexec"
+}
+
 fn privileged_smi(args: &[String]) -> Result<(), String> {
-    let output = Command::new("pkexec")
+    let output = Command::new(pkexec_path())
         .arg(nvidia_smi_path())
         .args(args)
         .output()
@@ -153,6 +165,11 @@ fn privileged_smi(args: &[String]) -> Result<(), String> {
     if detail.contains("Not authorized") || detail.contains("Authentication") {
         return Err(format!(
             "Polkit did not authorize the power-limit change: {detail}"
+        ));
+    }
+    if detail.contains("must be setuid root") || detail.contains("setuid") {
+        return Err(format!(
+            "pkexec is not using the NixOS setuid wrapper. Expected /run/wrappers/bin/pkexec. Driver response: {detail}"
         ));
     }
     Err(format!(
