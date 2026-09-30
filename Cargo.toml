@@ -1,8 +1,8 @@
 [package]
 name = "nvidia-gpu-manager"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
-description = "A small NVIDIA GPU manager for NixOS"
+description = "A secure multi-GPU NVIDIA manager for NixOS"
 license = "MIT"
 
 [dependencies]
