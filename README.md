@@ -99,8 +99,15 @@ GPU with a UUID-qualified target:
 
 The operation is enabled only when the driver returns at least one unique
 related fan and all related fans have a common valid range. The same
-UUID-qualified relationship is used for the assignment. If mapping or range
-validation fails, monitoring remains available but fan control fails closed.
+UUID-qualified relationship is used only for discovery. Writes are sent to
+each verified concrete target as `[fan:<id>]/GPUTargetFanSpeed`. If mapping or
+range validation fails, manual speed changes fail closed. Restoring automatic
+control remains available because it only writes the selected UUID's
+`GPUFanControlState` and does not depend on a speed mapping.
+
+Capability probes distinguish confirmed unsupported attributes from temporary
+driver, X control, and parsing failures. Temporary failures are retried while
+the application is running; confirmed unsupported controls stay disabled.
 
 Fan control is not supported by every GPU, firmware, or driver. It needs an X
 control display and Coolbits fan support. A Wayland desktop may expose the

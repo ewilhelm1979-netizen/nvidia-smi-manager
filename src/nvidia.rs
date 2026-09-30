@@ -28,19 +28,62 @@ pub struct FanControl {
 }
 
 #[derive(Clone, Debug)]
+pub enum Capability<T> {
+    Supported(T),
+    Unsupported(String),
+    Retryable(String),
+}
+
+impl<T> Capability<T> {
+    pub fn value(&self) -> Option<&T> {
+        match self {
+            Self::Supported(value) => Some(value),
+            Self::Unsupported(_) | Self::Retryable(_) => None,
+        }
+    }
+
+    pub fn reason(&self) -> Option<&str> {
+        match self {
+            Self::Supported(_) => None,
+            Self::Unsupported(reason) | Self::Retryable(reason) => Some(reason),
+        }
+    }
+
+    pub fn is_retryable(&self) -> bool {
+        matches!(self, Self::Retryable(_))
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct GpuControls {
-    pub fan: Option<FanControl>,
-    pub fan_reason: String,
-    pub core_offset: Option<SettingRange>,
-    pub core_reason: String,
-    pub memory_offset: Option<SettingRange>,
-    pub memory_reason: String,
+    pub fan: Capability<FanControl>,
+    pub core_offset: Capability<SettingRange>,
+    pub memory_offset: Capability<SettingRange>,
+}
+
+impl GpuControls {
+    pub fn needs_retry(&self) -> bool {
+        self.fan.is_retryable()
+            || self.core_offset.is_retryable()
+            || self.memory_offset.is_retryable()
+    }
 }
 
 #[derive(Clone, Debug)]
 struct SettingInstance {
     target_id: u32,
     range: SettingRange,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum ProbeError {
+    Unsupported(String),
+    Retryable(String),
+}
+
+enum FanChange {
+    Automatic,
+    Manual { value: i32, fan: FanControl },
 }
 
 pub fn read_inventory() -> Result<InventorySnapshot, String> {
@@ -70,34 +113,21 @@ pub fn probe_controls(uuid: &str) -> Result<GpuControls, String> {
     verify_settings_gpu(uuid)?;
 
     let gpu_fan_target = gpu_target(uuid, GPU_FAN_CONTROL_STATE)?;
-    let fan_target = fan_qualifier_target(uuid, GPU_TARGET_FAN_SPEED)?;
-    let fan = match (
-        query_setting_value(&gpu_fan_target),
-        query_setting_instances(&fan_target, "fan"),
-    ) {
-        (Ok(manual), Ok(instances)) => build_fan_control(manual != 0, instances).ok(),
-        _ => None,
-    };
-    let fan_reason = if fan.is_some() {
-        String::new()
-    } else {
-        "The driver did not provide a verified GPU-to-fan relationship and writable range."
-            .to_owned()
-    };
+    let fan_relationship = fan_relationship_target(uuid, GPU_TARGET_FAN_SPEED)?;
+    let fan = fan_capability(
+        probe_setting_value(&gpu_fan_target),
+        probe_setting_instances(&fan_relationship, "fan"),
+    );
 
     let core_target = gpu_target(uuid, CORE_OFFSET)?;
-    let (core_offset, core_reason) = optional_gpu_range(&core_target, "Core clock offsets");
+    let core_offset = range_capability(&core_target, "Core clock offsets");
     let memory_target = gpu_target(uuid, MEMORY_OFFSET)?;
-    let (memory_offset, memory_reason) =
-        optional_gpu_range(&memory_target, "Memory transfer offsets");
+    let memory_offset = range_capability(&memory_target, "Memory transfer offsets");
 
     Ok(GpuControls {
         fan,
-        fan_reason,
         core_offset,
-        core_reason,
         memory_offset,
-        memory_reason,
     })
 }
 
@@ -117,36 +147,35 @@ pub fn set_power_limit(uuid: &str, watts: u32) -> Result<String, String> {
 
 pub fn set_fan_speed(uuid: &str, speed: Option<i32>) -> Result<String, String> {
     let stats = fresh_gpu(uuid)?;
-    let controls = probe_controls(uuid)?;
-    let fan = controls
-        .fan
-        .ok_or_else(|| format!("fan control blocked: {}", controls.fan_reason))?;
-    if fan.targets.is_empty() {
-        return Err("fan control blocked: no related fan targets".to_owned());
-    }
-
     let control_target = gpu_target(uuid, GPU_FAN_CONTROL_STATE)?;
-    match speed {
-        None => {
+    let change = plan_fan_change(speed, || probe_controls(uuid))?;
+    match change {
+        FanChange::Automatic => {
+            verify_settings_gpu(uuid)?;
             assign_setting(&control_target, 0)?;
             Ok(format!(
                 "Automatic fan control enabled for GPU {}",
                 stats.id.index
             ))
         }
-        Some(value) => {
-            if !fan.range.contains(value) {
-                return Err(format!(
-                    "fan speed {value}% is outside the current verified range {}-{}%",
-                    fan.range.min, fan.range.max
-                ));
-            }
+        FanChange::Manual { value, fan } => {
+            let targets = fan_assignment_targets(&fan)?;
             assign_setting(&control_target, 1)?;
-            let target = fan_qualifier_target(uuid, GPU_TARGET_FAN_SPEED)?;
-            assign_setting(&target, value)?;
+            for target in &targets {
+                if let Err(error) = assign_setting(target, value) {
+                    let rollback = assign_setting(&control_target, 0)
+                        .map(|_| "automatic mode restored".to_owned())
+                        .unwrap_or_else(|rollback| {
+                            format!("automatic-mode rollback also failed: {rollback}")
+                        });
+                    return Err(format!(
+                        "fan assignment failed for {target}: {error}; {rollback}"
+                    ));
+                }
+            }
             Ok(format!(
                 "{} related fan(s) on GPU {} set to {value}%",
-                fan.targets.len(),
+                targets.len(),
                 stats.id.index
             ))
         }
@@ -165,10 +194,7 @@ pub fn set_tuning(
     let controls = probe_controls(uuid)?;
 
     if let Some(value) = core_offset {
-        let range = controls
-            .core_offset
-            .as_ref()
-            .ok_or_else(|| format!("core tuning blocked: {}", controls.core_reason))?;
+        let range = require_capability(&controls.core_offset, "core tuning")?;
         if !range.contains(value) {
             return Err(format!(
                 "core offset {value} is outside the current verified range {} to {}",
@@ -177,10 +203,7 @@ pub fn set_tuning(
         }
     }
     if let Some(value) = memory_offset {
-        let range = controls
-            .memory_offset
-            .as_ref()
-            .ok_or_else(|| format!("memory tuning blocked: {}", controls.memory_reason))?;
+        let range = require_capability(&controls.memory_offset, "memory tuning")?;
         if !range.contains(value) {
             return Err(format!(
                 "memory offset {value} is outside the current verified range {} to {}",
@@ -257,14 +280,54 @@ fn verify_settings_gpu(uuid: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn optional_gpu_range(target: &str, label: &str) -> (Option<SettingRange>, String) {
-    match query_setting_instances(target, "gpu") {
-        Ok(instances) if instances.len() == 1 => (Some(instances[0].range.clone()), String::new()),
-        Ok(_) => (
-            None,
-            format!("{label} are unavailable because the GPU target was ambiguous."),
-        ),
-        Err(error) => (None, format!("{label} are unavailable: {error}")),
+fn range_capability(target: &str, label: &str) -> Capability<SettingRange> {
+    match probe_setting_instances(target, "gpu") {
+        Ok(instances) if instances.len() == 1 => Capability::Supported(instances[0].range.clone()),
+        Ok(_) => Capability::Retryable(format!(
+            "{label} are temporarily unavailable because the GPU target was ambiguous."
+        )),
+        Err(ProbeError::Unsupported(error)) => {
+            Capability::Unsupported(format!("{label} are unsupported: {error}"))
+        }
+        Err(ProbeError::Retryable(error)) => {
+            Capability::Retryable(format!("{label} are temporarily unavailable: {error}"))
+        }
+    }
+}
+
+fn fan_capability(
+    manual: Result<i32, ProbeError>,
+    instances: Result<Vec<SettingInstance>, ProbeError>,
+) -> Capability<FanControl> {
+    let manual = match manual {
+        Ok(manual) => manual,
+        Err(ProbeError::Unsupported(error)) => {
+            return Capability::Unsupported(format!("Fan control is unsupported: {error}"));
+        }
+        Err(ProbeError::Retryable(error)) => {
+            return Capability::Retryable(format!(
+                "Fan control is temporarily unavailable: {error}"
+            ));
+        }
+    };
+    let instances = match instances {
+        Ok(instances) => instances,
+        Err(ProbeError::Unsupported(error)) => {
+            return Capability::Unsupported(format!(
+                "No supported fan mapping was reported: {error}"
+            ));
+        }
+        Err(ProbeError::Retryable(error)) => {
+            return Capability::Retryable(format!(
+                "Fan mapping is temporarily unavailable: {error}"
+            ));
+        }
+    };
+    match build_fan_control(manual != 0, instances) {
+        Ok(fan) => Capability::Supported(fan),
+        Err(error) => Capability::Retryable(format!(
+            "Fan mapping could not be validated and will be retried: {error}"
+        )),
     }
 }
 
@@ -301,17 +364,76 @@ fn build_fan_control(manual: bool, instances: Vec<SettingInstance>) -> Result<Fa
     })
 }
 
-fn query_setting_value(target: &str) -> Result<i32, String> {
-    let output = run_nvidia_settings(&["-q".to_owned(), target.to_owned()])?;
-    parse_setting_value(&output).ok_or_else(|| "could not parse driver value".to_owned())
+fn plan_fan_change<F>(speed: Option<i32>, probe: F) -> Result<FanChange, String>
+where
+    F: FnOnce() -> Result<GpuControls, String>,
+{
+    let Some(value) = speed else {
+        return Ok(FanChange::Automatic);
+    };
+    let controls = probe()?;
+    let fan = require_capability(&controls.fan, "fan control")?;
+    if fan.targets.is_empty() {
+        return Err("fan control blocked: no related fan targets".to_owned());
+    }
+    if !fan.range.contains(value) {
+        return Err(format!(
+            "fan speed {value}% is outside the current verified range {}-{}%",
+            fan.range.min, fan.range.max
+        ));
+    }
+    Ok(FanChange::Manual {
+        value,
+        fan: fan.clone(),
+    })
 }
 
-fn query_setting_instances(
+fn require_capability<'a, T>(capability: &'a Capability<T>, label: &str) -> Result<&'a T, String> {
+    match capability {
+        Capability::Supported(value) => Ok(value),
+        Capability::Unsupported(reason) => Err(format!("{label} blocked: {reason}")),
+        Capability::Retryable(reason) => Err(format!("{label} temporarily unavailable: {reason}")),
+    }
+}
+
+fn probe_setting_value(target: &str) -> Result<i32, ProbeError> {
+    let output =
+        run_nvidia_settings(&["-q".to_owned(), target.to_owned()]).map_err(classify_probe_error)?;
+    parse_setting_value(&output)
+        .ok_or_else(|| ProbeError::Retryable("could not parse driver value".to_owned()))
+}
+
+fn probe_setting_instances(
     target: &str,
     target_kind: &str,
-) -> Result<Vec<SettingInstance>, String> {
-    let output = run_nvidia_settings(&["-q".to_owned(), target.to_owned()])?;
-    parse_setting_instances(&output, target_kind)
+) -> Result<Vec<SettingInstance>, ProbeError> {
+    let output =
+        run_nvidia_settings(&["-q".to_owned(), target.to_owned()]).map_err(classify_probe_error)?;
+    let marker = format!("([{target_kind}:");
+    if !output.contains(&marker) {
+        return Err(ProbeError::Unsupported(
+            "the driver returned no matching targets".to_owned(),
+        ));
+    }
+    parse_setting_instances(&output, target_kind).map_err(ProbeError::Retryable)
+}
+
+fn classify_probe_error(error: String) -> ProbeError {
+    let lower = error.to_ascii_lowercase();
+    let confirmed_unsupported = [
+        "is not available on",
+        "not supported",
+        "no targets match target specification",
+        "unknown attribute",
+        "unrecognized attribute",
+    ]
+    .iter()
+    .any(|pattern| lower.contains(pattern));
+    if confirmed_unsupported {
+        ProbeError::Unsupported(error)
+    } else {
+        ProbeError::Retryable(error)
+    }
 }
 
 fn run_nvidia_settings(args: &[String]) -> Result<String, String> {
@@ -320,6 +442,7 @@ fn run_nvidia_settings(args: &[String]) -> Result<String, String> {
         &["/run/current-system/sw/bin/nvidia-settings"],
     )?;
     let output = Command::new(binary)
+        .env("LC_ALL", "C")
         .args(args)
         .output()
         .map_err(|error| format!("could not start {binary}: {error}"))?;
@@ -339,9 +462,25 @@ fn gpu_target(uuid: &str, attribute: &str) -> Result<String, String> {
     Ok(format!("[GPU:{uuid}]/{attribute}"))
 }
 
-fn fan_qualifier_target(uuid: &str, attribute: &str) -> Result<String, String> {
+fn fan_relationship_target(uuid: &str, attribute: &str) -> Result<String, String> {
     validate_uuid(uuid)?;
+    // NV-CONTROL qualifier syntax: all FAN targets related to this GPU target.
     Ok(format!("[GPU:{uuid}.FAN]/{attribute}"))
+}
+
+fn fan_target(target_id: u32, attribute: &str) -> String {
+    format!("[fan:{target_id}]/{attribute}")
+}
+
+fn fan_assignment_targets(fan: &FanControl) -> Result<Vec<String>, String> {
+    if fan.targets.is_empty() {
+        return Err("fan control blocked: no related fan targets".to_owned());
+    }
+    Ok(fan
+        .targets
+        .iter()
+        .map(|target_id| fan_target(*target_id, GPU_TARGET_FAN_SPEED))
+        .collect())
 }
 
 fn validate_uuid(uuid: &str) -> Result<(), String> {
@@ -451,15 +590,19 @@ mod tests {
             Ok("[GPU:GPU-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee]/GPUGraphicsClockOffsetAllPerformanceLevels")
         );
         assert_eq!(
-            fan_qualifier_target(UUID, GPU_TARGET_FAN_SPEED).as_deref(),
+            fan_relationship_target(UUID, GPU_TARGET_FAN_SPEED).as_deref(),
             Ok("[GPU:GPU-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.FAN]/GPUTargetFanSpeed")
+        );
+        assert_eq!(
+            fan_target(7, GPU_TARGET_FAN_SPEED),
+            "[fan:7]/GPUTargetFanSpeed"
         );
     }
 
     #[test]
     fn rejects_injection_in_target_identifier() {
         assert!(gpu_target("GPU-0]/x=1", CORE_OFFSET).is_err());
-        assert!(fan_qualifier_target("$(touch /tmp/x)", GPU_TARGET_FAN_SPEED).is_err());
+        assert!(fan_relationship_target("$(touch /tmp/x)", GPU_TARGET_FAN_SPEED).is_err());
     }
 
     #[test]
@@ -470,6 +613,44 @@ mod tests {
         assert_eq!(control.targets, vec![0, 1]);
         assert_eq!(control.range.min, 35);
         assert_eq!(control.range.max, 90);
+        assert_eq!(
+            fan_assignment_targets(&control).expect("explicit targets"),
+            vec![
+                "[fan:0]/GPUTargetFanSpeed".to_owned(),
+                "[fan:1]/GPUTargetFanSpeed".to_owned()
+            ]
+        );
+    }
+
+    #[test]
+    fn automatic_fan_recovery_does_not_probe_speed_mapping() {
+        let change = plan_fan_change(None, || panic!("fan mapping must not be queried"))
+            .expect("automatic recovery must remain available");
+        assert!(matches!(change, FanChange::Automatic));
+    }
+
+    #[test]
+    fn distinguishes_unsupported_and_retryable_probe_failures() {
+        assert!(matches!(
+            classify_probe_error(
+                "Attribute 'GPUFanControlState' is not available on [gpu:0]".to_owned()
+            ),
+            ProbeError::Unsupported(_)
+        ));
+        assert!(matches!(
+            classify_probe_error("nvidia-settings failed: NVIDIA driver is not loaded".to_owned()),
+            ProbeError::Retryable(_)
+        ));
+
+        let controls = GpuControls {
+            fan: fan_capability(
+                Ok(0),
+                Err(ProbeError::Retryable("temporary X failure".to_owned())),
+            ),
+            core_offset: Capability::Unsupported("not exposed".to_owned()),
+            memory_offset: Capability::Unsupported("not exposed".to_owned()),
+        };
+        assert!(controls.needs_retry());
     }
 
     #[test]

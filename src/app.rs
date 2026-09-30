@@ -10,7 +10,7 @@ use eframe::egui::{
 
 use crate::{
     gpu::{short_bus_id, GpuHistory, GpuStats, InventorySnapshot},
-    nvidia::GpuControls,
+    nvidia::{Capability, GpuControls},
     worker::{ActionKind, Worker, WorkerRequest, WorkerResponse},
 };
 
@@ -94,13 +94,13 @@ impl GpuState {
 
     fn install_controls(&mut self, controls: GpuControls) {
         if self.fan_speed.is_none() {
-            self.fan_speed = controls.fan.as_ref().map(|fan| fan.range.current);
+            self.fan_speed = controls.fan.value().map(|fan| fan.range.current);
         }
         if self.core_offset.is_none() {
-            self.core_offset = controls.core_offset.as_ref().map(|range| range.current);
+            self.core_offset = controls.core_offset.value().map(|range| range.current);
         }
         if self.memory_offset.is_none() {
-            self.memory_offset = controls.memory_offset.as_ref().map(|range| range.current);
+            self.memory_offset = controls.memory_offset.value().map(|range| range.current);
         }
         self.controls = ControlsState::Ready(controls);
     }
@@ -255,9 +255,8 @@ impl ManagerApp {
 
     fn queue_control_probes(&mut self) {
         for state in &mut self.gpus {
-            let should_probe = matches!(state.controls, ControlsState::Unknown)
-                || (matches!(state.controls, ControlsState::Unavailable(_))
-                    && state.last_control_probe.elapsed() >= CONTROL_RETRY_INTERVAL);
+            let should_probe =
+                control_probe_due(&state.controls, state.last_control_probe.elapsed());
             if !should_probe {
                 continue;
             }
@@ -536,57 +535,92 @@ impl ManagerApp {
         card(ui, "MANUAL FAN CONTROL", |ui| match controls {
             ControlsState::Unknown | ControlsState::Pending => {
                 ui.colored_label(MUTED, "Checking driver fan mapping...");
+                if ui
+                    .add_enabled(!busy, egui::Button::new("Restore automatic control"))
+                    .clicked()
+                {
+                    action = Some(None);
+                }
             }
             ControlsState::Unavailable(error) => {
                 ui.colored_label(RED, format!("Fan control unavailable: {error}"));
+                if ui
+                    .add_enabled(!busy, egui::Button::new("Restore automatic control"))
+                    .clicked()
+                {
+                    action = Some(None);
+                }
             }
-            ControlsState::Ready(controls) => {
-                let Some(fan) = controls.fan else {
+            ControlsState::Ready(controls) => match controls.fan {
+                Capability::Supported(fan) => {
+                    let desired = self.gpus[selected]
+                        .fan_speed
+                        .get_or_insert(fan.range.current);
+                    *desired = (*desired).clamp(fan.range.min, fan.range.max);
+                    ui.label(if fan.manual {
+                        "Mode: manual"
+                    } else {
+                        "Mode: automatic"
+                    });
+                    ui.colored_label(CYAN, RichText::new(format!("{desired}%")).size(23.0));
+                    ui.add(egui::Slider::new(desired, fan.range.min..=fan.range.max));
+                    ui.horizontal(|ui| {
+                        if ui
+                            .add_enabled(!busy, egui::Button::new("Apply fan speed"))
+                            .clicked()
+                        {
+                            action = Some(Some(*desired));
+                        }
+                        if ui
+                            .add_enabled(!busy, egui::Button::new("Automatic"))
+                            .clicked()
+                        {
+                            action = Some(None);
+                        }
+                    });
                     ui.colored_label(
-                        RED,
-                        format!("Fan control disabled: {}", controls.fan_reason),
+                        MUTED,
+                        format!(
+                            "Verified NV-CONTROL mapping: {} fan target(s), common range {}-{}%.",
+                            fan.targets.len(),
+                            fan.range.min,
+                            fan.range.max
+                        ),
                     );
-                    return;
-                };
-                let desired = self.gpus[selected]
-                    .fan_speed
-                    .get_or_insert(fan.range.current);
-                *desired = (*desired).clamp(fan.range.min, fan.range.max);
-                ui.label(if fan.manual {
-                    "Mode: manual"
-                } else {
-                    "Mode: automatic"
-                });
-                ui.colored_label(CYAN, RichText::new(format!("{desired}%")).size(23.0));
-                ui.add(egui::Slider::new(desired, fan.range.min..=fan.range.max));
-                ui.horizontal(|ui| {
+                    ui.colored_label(
+                        MUTED,
+                        "Requires nvidia-settings, an X control display, and Coolbits fan support.",
+                    );
+                }
+                capability => {
+                    let label = if capability.is_retryable() {
+                        "Fan mapping temporarily unavailable"
+                    } else {
+                        "Manual fan control unsupported"
+                    };
+                    ui.colored_label(
+                        if capability.is_retryable() {
+                            ORANGE
+                        } else {
+                            RED
+                        },
+                        format!(
+                            "{label}: {}",
+                            capability.reason().unwrap_or("no driver details")
+                        ),
+                    );
                     if ui
-                        .add_enabled(!busy, egui::Button::new("Apply fan speed"))
-                        .clicked()
-                    {
-                        action = Some(Some(*desired));
-                    }
-                    if ui
-                        .add_enabled(!busy, egui::Button::new("Automatic"))
+                        .add_enabled(!busy, egui::Button::new("Restore automatic control"))
                         .clicked()
                     {
                         action = Some(None);
                     }
-                });
-                ui.colored_label(
-                    MUTED,
-                    format!(
-                        "Verified NV-CONTROL mapping: {} fan target(s), common range {}-{}%.",
-                        fan.targets.len(),
-                        fan.range.min,
-                        fan.range.max
-                    ),
-                );
-                ui.colored_label(
-                    MUTED,
-                    "Requires nvidia-settings, an X control display, and Coolbits fan support.",
-                );
-            }
+                    ui.colored_label(
+                        MUTED,
+                        "Automatic recovery addresses only the verified GPU and does not require a speed mapping.",
+                    );
+                }
+            },
         });
         if let Some(speed) = action {
             self.send_action(
@@ -605,8 +639,8 @@ impl ManagerApp {
         let controls = self.gpus[selected].controls.clone();
         let (core_supported, memory_supported) = match &controls {
             ControlsState::Ready(controls) => (
-                controls.core_offset.is_some(),
-                controls.memory_offset.is_some(),
+                controls.core_offset.value().is_some(),
+                controls.memory_offset.value().is_some(),
             ),
             _ => (false, false),
         };
@@ -627,36 +661,61 @@ impl ManagerApp {
                     ui.colored_label(RED, format!("Tuning unavailable: {error}"));
                 }
                 ControlsState::Ready(controls) => {
-                    if let Some(range) = &controls.core_offset {
-                        let value = self.gpus[selected].core_offset.get_or_insert(range.current);
-                        *value = (*value).clamp(range.min, range.max);
-                        ui.label(format!("GPU core offset: {value:+} MHz"));
-                        ui.add(egui::Slider::new(value, range.min..=range.max));
-                        ui.colored_label(
-                            MUTED,
-                            format!("Driver range: {:+} to {:+} MHz", range.min, range.max),
-                        );
-                    } else {
-                        ui.colored_label(MUTED, &controls.core_reason);
+                    match &controls.core_offset {
+                        Capability::Supported(range) => {
+                            let value =
+                                self.gpus[selected].core_offset.get_or_insert(range.current);
+                            *value = (*value).clamp(range.min, range.max);
+                            ui.label(format!("GPU core offset: {value:+} MHz"));
+                            ui.add(egui::Slider::new(value, range.min..=range.max));
+                            ui.colored_label(
+                                MUTED,
+                                format!("Driver range: {:+} to {:+} MHz", range.min, range.max),
+                            );
+                        }
+                        capability => {
+                            ui.colored_label(
+                                if capability.is_retryable() {
+                                    ORANGE
+                                } else {
+                                    MUTED
+                                },
+                                capability
+                                    .reason()
+                                    .unwrap_or("Core clock offsets unavailable"),
+                            );
+                        }
                     }
                     ui.add_space(8.0);
-                    if let Some(range) = &controls.memory_offset {
-                        let value = self.gpus[selected]
-                            .memory_offset
-                            .get_or_insert(range.current);
-                        *value = (*value).clamp(range.min, range.max);
-                        ui.label(format!("Memory transfer offset: {value:+} MHz"));
-                        ui.add(egui::Slider::new(value, range.min..=range.max));
-                        ui.colored_label(
-                            MUTED,
-                            format!("Driver range: {:+} to {:+} MHz", range.min, range.max),
-                        );
-                    } else {
-                        ui.colored_label(MUTED, &controls.memory_reason);
+                    match &controls.memory_offset {
+                        Capability::Supported(range) => {
+                            let value = self.gpus[selected]
+                                .memory_offset
+                                .get_or_insert(range.current);
+                            *value = (*value).clamp(range.min, range.max);
+                            ui.label(format!("Memory transfer offset: {value:+} MHz"));
+                            ui.add(egui::Slider::new(value, range.min..=range.max));
+                            ui.colored_label(
+                                MUTED,
+                                format!("Driver range: {:+} to {:+} MHz", range.min, range.max),
+                            );
+                        }
+                        capability => {
+                            ui.colored_label(
+                                if capability.is_retryable() {
+                                    ORANGE
+                                } else {
+                                    MUTED
+                                },
+                                capability
+                                    .reason()
+                                    .unwrap_or("Memory transfer offsets unavailable"),
+                            );
+                        }
                     }
                     ui.add_space(10.0);
-                    let supported =
-                        controls.core_offset.is_some() || controls.memory_offset.is_some();
+                    let supported = controls.core_offset.value().is_some()
+                        || controls.memory_offset.value().is_some();
                     ui.horizontal(|ui| {
                         if ui
                             .add_enabled(!busy && supported, egui::Button::new("Apply offsets"))
@@ -916,6 +975,17 @@ fn option_text(value: Option<&str>) -> String {
     value.unwrap_or("N/A").to_owned()
 }
 
+fn control_probe_due(controls: &ControlsState, elapsed: Duration) -> bool {
+    match controls {
+        ControlsState::Unknown => true,
+        ControlsState::Unavailable(_) => elapsed >= CONTROL_RETRY_INTERVAL,
+        ControlsState::Ready(controls) => {
+            controls.needs_retry() && elapsed >= CONTROL_RETRY_INTERVAL
+        }
+        ControlsState::Pending => false,
+    }
+}
+
 fn reconcile_selection<'a>(
     previous: Option<&str>,
     selection_requires_user: bool,
@@ -981,5 +1051,26 @@ mod tests {
         let (selection, lost) = reconcile_selection(None, true, uuids.into_iter());
         assert_eq!(selection, None);
         assert!(!lost);
+    }
+
+    #[test]
+    fn retryable_partial_capability_probe_is_queued_again() {
+        let retryable = ControlsState::Ready(GpuControls {
+            fan: Capability::Retryable("temporary X failure".to_owned()),
+            core_offset: Capability::Unsupported("not exposed".to_owned()),
+            memory_offset: Capability::Unsupported("not exposed".to_owned()),
+        });
+        assert!(!control_probe_due(
+            &retryable,
+            CONTROL_RETRY_INTERVAL - Duration::from_millis(1)
+        ));
+        assert!(control_probe_due(&retryable, CONTROL_RETRY_INTERVAL));
+
+        let unsupported = ControlsState::Ready(GpuControls {
+            fan: Capability::Unsupported("not exposed".to_owned()),
+            core_offset: Capability::Unsupported("not exposed".to_owned()),
+            memory_offset: Capability::Unsupported("not exposed".to_owned()),
+        });
+        assert!(!control_probe_due(&unsupported, CONTROL_RETRY_INTERVAL * 2));
     }
 }
