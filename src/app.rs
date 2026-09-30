@@ -802,8 +802,8 @@ fn configure_style(ctx: &egui::Context) {
     visuals.panel_fill = Color32::from_rgb(13, 15, 20);
     visuals.window_fill = CARD;
     visuals.widgets.inactive.bg_fill = CARD;
-    visuals.widgets.inactive.bg_stroke = Stroke::new(1.0, BORDER);
-    visuals.widgets.hovered.bg_stroke = Stroke::new(1.0, ACCENT);
+    visuals.widgets.inactive.bg_stroke = Stroke::new(1.0_f32, BORDER);
+    visuals.widgets.hovered.bg_stroke = Stroke::new(1.0_f32, ACCENT);
     visuals.selection.bg_fill = ACCENT;
     ctx.set_visuals(visuals);
 }
@@ -811,7 +811,7 @@ fn configure_style(ctx: &egui::Context) {
 fn card(ui: &mut egui::Ui, title: &str, body: impl FnOnce(&mut egui::Ui)) {
     egui::Frame::new()
         .fill(CARD)
-        .stroke(Stroke::new(1.0, BORDER))
+        .stroke(Stroke::new(1.0_f32, BORDER))
         .corner_radius(CornerRadius::same(9))
         .inner_margin(12.0)
         .show(ui, |ui| {
@@ -849,7 +849,7 @@ fn sparkline(ui: &mut egui::Ui, values: &VecDeque<Option<f32>>, max: f32, color:
         rect,
         CornerRadius::same(4),
         CARD,
-        Stroke::new(1.0, BORDER),
+        Stroke::new(1.0_f32, BORDER),
         StrokeKind::Inside,
     );
     if values.len() < 2 || max <= 0.0 {
@@ -865,14 +865,14 @@ fn sparkline(ui: &mut egui::Ui, values: &VecDeque<Option<f32>>, max: f32, color:
         } else if segment.len() >= 2 {
             painter.add(egui::Shape::line(
                 std::mem::take(&mut segment),
-                Stroke::new(2.0, color),
+                Stroke::new(2.0_f32, color),
             ));
         } else {
             segment.clear();
         }
     }
     if segment.len() >= 2 {
-        painter.add(egui::Shape::line(segment, Stroke::new(2.0, color)));
+        painter.add(egui::Shape::line(segment, Stroke::new(2.0_f32, color)));
     }
 }
 
