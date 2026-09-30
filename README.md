@@ -205,6 +205,33 @@ Clock changes can destabilize the desktop or compute workloads. Start with
 small offsets and test the affected GPU. The driver may expose different
 capabilities for GeForce and professional cards.
 
+## Manual hardware-write acceptance
+
+Real hardware writes are never part of automated qualification. Test the
+target host only after separate, explicit human authorization for each
+operation, and test one card at a time in this order:
+
+1. RTX 4090
+2. first RTX A4000
+3. second RTX A4000, once installed
+
+Before every individual power, fan, or tuning test, confirm the selected
+card's model, UUID, and PCI bus against fresh read-only driver output. Re-read
+that card's power range, fan relationship, and tuning capabilities, and stop
+if any identity, mapping, or range is missing or ambiguous.
+
+The power slider and requested limit are maintained separately in each GPU's
+UUID-bound state. For every authorized power test, record the other cards'
+limits first, apply one in-range value only to the selected UUID, and verify
+that every unselected card remains unchanged. Restore the intended limit
+before selecting another card.
+
+Authorize fan and tuning tests independently from power tests. Return manual
+fan control to automatic mode immediately after observation, and restore any
+clock offset before proceeding. Stop after any mismatch, failed rollback,
+driver error, display instability, or unexpected change on another GPU. Do
+not use loops or unattended write commands for this acceptance.
+
 ## Security model
 
 The detailed trust boundaries and residual risks are documented in
