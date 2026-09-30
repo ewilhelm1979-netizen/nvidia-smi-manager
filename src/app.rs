@@ -831,27 +831,32 @@ impl eframe::App for ManagerApp {
         }
         ctx.request_repaint_after(Duration::from_millis(200));
 
+        egui::TopBottomPanel::bottom("status-bar").show(ctx, |ui| {
+            ui.separator();
+            ui.colored_label(MUTED, &self.status);
+        });
         egui::CentralPanel::default().show(ctx, |ui| {
             self.top_bar(ui);
             ui.add_space(8.0);
-            if let Some(selected) = self.selected_index() {
-                match self.tab {
-                    Tab::Monitoring => self.monitoring(ui, selected),
-                    Tab::Power => self.power(ui, selected),
-                    Tab::Fan => self.fan(ui, selected),
-                    Tab::Tuning => self.tuning(ui, selected),
-                    Tab::Info => self.info(ui, selected),
-                }
-            } else {
-                ui.colored_label(RED, "No NVIDIA GPU data available.");
-                ui.label(
-                    "Monitoring will retry automatically. Check that the NVIDIA driver and nvidia-smi are available.",
-                );
-            }
-            ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
-                ui.separator();
-                ui.colored_label(MUTED, &self.status);
-            });
+            egui::ScrollArea::vertical()
+                .id_salt("tab-content")
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    if let Some(selected) = self.selected_index() {
+                        match self.tab {
+                            Tab::Monitoring => self.monitoring(ui, selected),
+                            Tab::Power => self.power(ui, selected),
+                            Tab::Fan => self.fan(ui, selected),
+                            Tab::Tuning => self.tuning(ui, selected),
+                            Tab::Info => self.info(ui, selected),
+                        }
+                    } else {
+                        ui.colored_label(RED, "No NVIDIA GPU data available.");
+                        ui.label(
+                            "Monitoring will retry automatically. Check that the NVIDIA driver and nvidia-smi are available.",
+                        );
+                    }
+                });
         });
     }
 }
