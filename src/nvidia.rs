@@ -409,7 +409,7 @@ fn probe_setting_instances(
 ) -> Result<Vec<SettingInstance>, ProbeError> {
     let output =
         run_nvidia_settings(&["-q".to_owned(), target.to_owned()]).map_err(classify_probe_error)?;
-    let marker = format!("([{target_kind}:");
+    let marker = format!("[{target_kind}:");
     if !output.contains(&marker) {
         return Err(ProbeError::Unsupported(
             "the driver returned no matching targets".to_owned(),
@@ -541,7 +541,7 @@ fn parse_setting_instances(
     output: &str,
     target_kind: &str,
 ) -> Result<Vec<SettingInstance>, String> {
-    let marker = format!("([{target_kind}:");
+    let marker = format!("[{target_kind}:");
     let mut instances = Vec::new();
     for block in output.split("Attribute '").skip(1) {
         let header = block
@@ -552,7 +552,7 @@ fn parse_setting_instances(
             .split_once(&marker)
             .ok_or_else(|| format!("unexpected target type in '{header}'"))?;
         let (target_id, _) = target_and_value
-            .split_once("])")
+            .split_once(']')
             .ok_or_else(|| format!("malformed target in '{header}'"))?;
         let target_id = target_id
             .parse::<u32>()
@@ -620,6 +620,18 @@ mod tests {
                 "[fan:1]/GPUTargetFanSpeed".to_owned()
             ]
         );
+    }
+
+    #[test]
+    fn parses_display_qualified_target_instances() {
+        let fan_output = "  Attribute 'GPUTargetFanSpeed' (workstation:0[fan:7]): 42.\n    The valid values for 'GPUTargetFanSpeed' are in the range 30 - 100 (inclusive).\n";
+        let fans = parse_setting_instances(fan_output, "fan").expect("qualified fan target");
+        assert_eq!(fans[0].target_id, 7);
+        assert_eq!(fans[0].range.current, 42);
+
+        let gpu_output = "  Attribute 'GPUGraphicsClockOffsetAllPerformanceLevels' (workstation:0[gpu:2]): 0.\n    The valid values for 'GPUGraphicsClockOffsetAllPerformanceLevels' are in the range -1000 - 1000 (inclusive).\n";
+        let gpus = parse_setting_instances(gpu_output, "gpu").expect("qualified GPU target");
+        assert_eq!(gpus[0].target_id, 2);
     }
 
     #[test]
