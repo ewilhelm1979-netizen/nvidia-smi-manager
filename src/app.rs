@@ -1024,6 +1024,18 @@ mod tests {
     }
 
     #[test]
+    fn power_limit_selection_is_isolated_per_gpu() {
+        let snapshot = InventorySnapshot::parse_csv(&format!("{GPU_A}\n{GPU_B}"));
+        let mut states: Vec<_> = snapshot.gpus.into_iter().map(GpuState::new).collect();
+
+        states[0].desired_power_limit = Some(115);
+
+        assert_eq!(states[0].desired_power_limit, Some(115));
+        assert_eq!(states[1].desired_power_limit, Some(110));
+        assert_ne!(states[0].stats.id.uuid, states[1].stats.id.uuid);
+    }
+
+    #[test]
     fn missing_metrics_render_as_na() {
         assert_eq!(metric_text(None, " W", 0), "N/A");
         assert_eq!(memory_text(Some(1.0), None), "N/A");

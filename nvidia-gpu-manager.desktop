@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
 Name=NVIDIA GPU Manager
-Comment=Monitor and control an NVIDIA GPU
+Comment=Monitor and control one or more NVIDIA GPUs
 Exec=nvidia-gpu-manager
 Icon=nvidia-settings
 Terminal=false

@@ -3,14 +3,15 @@
 Native Rust GUI for monitoring and controlling one or more NVIDIA GPUs on
 NixOS. The application discovers every GPU reported by `nvidia-smi`, keeps
 state and history per UUID, and runs hardware queries outside the egui event
-loop.
+loop. This document describes version `0.2.0`.
 
 ## Features
 
 - monitoring for `1..N` NVIDIA GPUs
 - unambiguous GPU selector using index, model, UUID, and PCI bus identity
 - compact overview of all installed GPUs
-- per-GPU temperature, utilization, VRAM, fan, power, and clock history
+- per-GPU temperature, utilization, fan, and power history
+- per-GPU VRAM and clock monitoring
 - per-GPU power limits with interactive Polkit authentication
 - UUID-scoped clock offsets when the driver exposes them
 - fan control through driver-reported GPU-to-fan relationships
@@ -21,11 +22,16 @@ loop.
 The index shown in the UI is informational. The UUID is the stable identity
 used for selection and writes. If the selected GPU disappears, selection is
 cleared and all writes remain disabled until the user explicitly selects a GPU
-again.
+again. A fresh inventory and identity check is performed before every write, so
+a stored index is never trusted after hotplug, a driver reset, or GPU
+renumbering.
 
 ## Multi-GPU UI
 
-The selector displays entries such as:
+The target host may contain a GeForce RTX 4090 with 24 GB and two RTX A4000
+cards with 16 GB each. Capacity is part of that hardware description, not the
+selector label. The selector displays the driver-reported name and PCI bus,
+for example:
 
 ```text
 GPU 0 - NVIDIA GeForce RTX 4090 - 01:00.0
@@ -35,7 +41,9 @@ GPU 2 - NVIDIA RTX A4000 - 0b:00.0
 
 The bus ID makes identical models distinguishable. Monitoring includes an
 overview of all GPUs; Power, Fan, Tuning, and Info always refer only to the
-currently selected UUID.
+currently selected UUID. Histories, desired power limit, fan state, tuning
+values, and probed capabilities are maintained separately for each GPU. The UI
+is not limited to the three devices in this example; it supports `1..N` GPUs.
 
 ## Try it locally
 
@@ -48,6 +56,8 @@ only from trusted NixOS system paths; the application deliberately does not
 fall back to executables found through a user-controlled `PATH`.
 
 ## Add it to NixOS
+
+### Normal installation
 
 Add this repository as a flake input:
 
@@ -68,6 +78,20 @@ Add this repository as a flake input:
   };
 }
 ```
+
+### Reproducibly pinned production installation
+
+Production systems should pin an exact commit that has passed their local
+qualification instead of following a moving branch:
+
+```nix
+inputs.nvidia-gpu-manager.url =
+  "github:ewilhelm1979-netizen/nvidia-smi-manager/<COMMIT>";
+inputs.nvidia-gpu-manager.inputs.nixpkgs.follows = "nixpkgs";
+```
+
+Update that commit deliberately and refresh only this input in the consumer's
+lock file.
 
 Enable the module in `configuration.nix`:
 
@@ -91,23 +115,49 @@ No passwordless sudo rule is needed or installed.
 
 Fan indices are global NV-CONTROL identifiers and are not assumed to match GPU
 indices. The manager asks `nvidia-settings` for fans related to the selected
-GPU with a UUID-qualified target:
+GPU with the NV-CONTROL target qualifier `[GPU:<UUID>.FAN]`. With the queried
+attribute, relationship discovery uses:
 
 ```text
 [GPU:<UUID>.FAN]/GPUTargetFanSpeed
 ```
 
-The operation is enabled only when the driver returns at least one unique
-related fan and all related fans have a common valid range. The same
-UUID-qualified relationship is used only for discovery. Writes are sent to
-each verified concrete target as `[fan:<id>]/GPUTargetFanSpeed`. If mapping or
-range validation fails, manual speed changes fail closed. Restoring automatic
-control remains available because it only writes the selected UUID's
-`GPUFanControlState` and does not depend on a speed mapping.
+This qualifier is used only for discovery. The operation is enabled only when
+the driver returns at least one unique related fan and all related fans have a
+common valid range. Writes are sent exclusively to each verified concrete
+target as `[fan:<id>]/GPUTargetFanSpeed`. Missing, malformed, duplicate, or
+ambiguous mappings fail closed.
+
+On one read-only qualification host, the relationship query returned fans 0
+and 1 for an RTX 4090 and fan 2 for an RTX A4000. This is a hardware-specific
+example, not a general NVIDIA fan numbering rule.
+
+Restoring automatic control remains available because it writes only the
+selected UUID's `GPUFanControlState` and does not depend on a speed mapping. If
+one concrete fan write fails after manual mode was enabled, the manager tries
+to roll that GPU back to automatic control. Automated tests do not perform real
+fan writes.
+
+## Capability handling
 
 Capability probes distinguish confirmed unsupported attributes from temporary
-driver, X control, and parsing failures. Temporary failures are retried while
-the application is running; confirmed unsupported controls stay disabled.
+driver, display-server, NV-CONTROL, and parsing failures:
+
+- `Unsupported` means the driver explicitly does not expose the capability.
+- `Retryable` means the probe could not establish a reliable answer yet.
+
+Retryable capabilities are probed again while the application is running, so a
+temporary XWayland or driver failure does not permanently disable a control.
+`nvidia-settings` may qualify returned targets with a display prefix, for
+example `hostname:0[fan:0]` or `hostname:0[gpu:0]`; both forms are supported by
+the parser.
+
+## Display server requirements
+
+Monitoring uses `nvidia-smi` and does not require X11. Fan control and clock
+offsets use NV-CONTROL through `nvidia-settings`, which requires a working X11
+control display or an XWayland/NV-CONTROL bridge. A Wayland session alone does
+not guarantee that these controls are available.
 
 Fan control is not supported by every GPU, firmware, or driver. It needs an X
 control display and Coolbits fan support. A Wayland desktop may expose the
@@ -121,9 +171,10 @@ services.xserver.screenSection = ''
 '';
 ```
 
-`12` combines fan control (`4`) and clock offsets (`8`). The module does not
-enable Coolbits automatically because these controls change driver behavior.
-A new graphical login or reboot is normally required after changing it.
+The Coolbits mask uses `4` for fan control and `8` for clock offsets; `12` is
+their combination. The module does not enable Coolbits automatically because
+this is an explicit host policy and changes driver behavior. A new graphical
+login or reboot is normally required after changing it.
 
 ## Power limits
 
@@ -154,22 +205,54 @@ Clock changes can destabilize the desktop or compute workloads. Start with
 small offsets and test the affected GPU. The driver may expose different
 capabilities for GeForce and professional cards.
 
+## Manual hardware-write acceptance
+
+Real hardware writes are never part of automated qualification. Test the
+target host only after separate, explicit human authorization for each
+operation, and test one card at a time in this order:
+
+1. RTX 4090
+2. first RTX A4000
+3. second RTX A4000, once installed
+
+Before every individual power, fan, or tuning test, confirm the selected
+card's model, UUID, and PCI bus against fresh read-only driver output. Re-read
+that card's power range, fan relationship, and tuning capabilities, and stop
+if any identity, mapping, or range is missing or ambiguous.
+
+The power slider and requested limit are maintained separately in each GPU's
+UUID-bound state. For every authorized power test, record the other cards'
+limits first, apply one in-range value only to the selected UUID, and verify
+that every unselected card remains unchanged. Restore the intended limit
+before selecting another card.
+
+Authorize fan and tuning tests independently from power tests. Return manual
+fan control to automatic mode immediately after observation, and restore any
+clock offset before proceeding. Stop after any mismatch, failed rollback,
+driver error, display instability, or unexpected change on another GPU. Do
+not use loops or unattended write commands for this acceptance.
+
 ## Security model
 
-Trust boundaries and protections:
+The detailed trust boundaries and residual risks are documented in
+[`SECURITY.md`](SECURITY.md). The main protections are:
 
 - `nvidia-smi` and `nvidia-settings` output is treated as untrusted input.
 - Mandatory identity fields are strictly validated.
 - Unsupported and malformed metrics become unavailable values, never numeric
   zeroes used for safety decisions.
 - UUIDs are restricted before they can enter NVIDIA target syntax.
-- All processes use `std::process::Command` with separate arguments; no shell
-  is used.
-- Executables are accepted only from fixed NixOS paths.
-- Every write revalidates identity, capability, mapping, and range.
+- All processes use `std::process::Command` with separate arguments; no shell,
+  `sh -c`, or `bash -c` is used.
+- Executables are accepted only from fixed NixOS paths, with no user-controlled
+  `PATH` fallback.
+- Every write performs a fresh identity check plus the capability, mapping, and
+  range checks relevant to that operation.
 - A single worker thread serializes driver access and keeps the UI responsive;
   refreshes cannot create an unbounded number of threads.
 - A failure affecting one GPU does not stop valid GPUs from being monitored.
+- Monitoring is unprivileged. Only power-limit changes cross the Polkit
+  boundary.
 
 Residual limitations:
 
@@ -181,6 +264,8 @@ Residual limitations:
   offset assignment can fail after the first one succeeded.
 - Hardware writes are not exercised by automated tests because they require
   explicit authentication and can affect running workloads.
+
+No passwordless sudo rule or setuid helper is installed.
 
 ## Development
 
