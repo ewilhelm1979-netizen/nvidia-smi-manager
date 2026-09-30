@@ -25,7 +25,7 @@
         let pkgs = import nixpkgs { inherit system; };
         in {
           default = pkgs.mkShell {
-            packages = [ pkgs.cargo pkgs.rustc pkgs.rustfmt ];
+            packages = [ pkgs.cargo pkgs.rustc pkgs.rustfmt pkgs.clippy ];
           };
         });
 

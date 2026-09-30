@@ -11,11 +11,18 @@ env:
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
 
     steps:
     - uses: actions/checkout@v4
+    - name: Install Rust components
+      run: rustup component add rustfmt clippy
+    - name: Check formatting
+      run: cargo fmt --check
+    - name: Check
+      run: cargo check --all-targets --all-features
+    - name: Clippy
+      run: cargo clippy --all-targets --all-features -- -D warnings
     - name: Build
       run: cargo build --verbose
     - name: Run tests
