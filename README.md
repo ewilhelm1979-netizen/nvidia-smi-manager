@@ -28,12 +28,15 @@ renumbering.
 
 ## Multi-GPU UI
 
-The selector displays entries such as:
+The target host may contain a GeForce RTX 4090 with 24 GB and two RTX A4000
+cards with 16 GB each. Capacity is part of that hardware description, not the
+selector label. The selector displays the driver-reported name and PCI bus,
+for example:
 
 ```text
-GPU 0 - NVIDIA GeForce RTX 4090 24 GB - 01:00.0
-GPU 1 - NVIDIA RTX A4000 16 GB - 09:00.0
-GPU 2 - NVIDIA RTX A4000 16 GB - 0b:00.0
+GPU 0 - NVIDIA GeForce RTX 4090 - 01:00.0
+GPU 1 - NVIDIA RTX A4000 - 09:00.0
+GPU 2 - NVIDIA RTX A4000 - 0b:00.0
 ```
 
 The bus ID makes identical models distinguishable. Monitoring includes an
