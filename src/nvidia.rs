@@ -6,6 +6,11 @@ const GPU_FAN_CONTROL_STATE: &str = "GPUFanControlState";
 const GPU_TARGET_FAN_SPEED: &str = "GPUTargetFanSpeed";
 const CORE_OFFSET: &str = "GPUGraphicsClockOffsetAllPerformanceLevels";
 const MEMORY_OFFSET: &str = "GPUMemoryTransferRateOffsetAllPerformanceLevels";
+const NVIDIA_SMI_PATHS: &[&str] = &[
+    "/run/current-system/sw/bin/nvidia-gpu-manager-nvidia-smi",
+    "/run/current-system/sw/bin/nvidia-smi",
+    "/run/opengl-driver/bin/nvidia-smi",
+];
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SettingRange {
@@ -87,13 +92,7 @@ enum FanChange {
 }
 
 pub fn read_inventory() -> Result<InventorySnapshot, String> {
-    let binary = resolve_executable(
-        "nvidia-smi",
-        &[
-            "/run/current-system/sw/bin/nvidia-smi",
-            "/run/opengl-driver/bin/nvidia-smi",
-        ],
-    )?;
+    let binary = resolve_executable("nvidia-smi", NVIDIA_SMI_PATHS)?;
     let output = Command::new(binary)
         .args([
             format!("--query-gpu={QUERY}"),
@@ -248,13 +247,7 @@ fn validate_power_limit(stats: &GpuStats, watts: u32) -> Result<(), String> {
 
 fn privileged_smi(args: &[String]) -> Result<(), String> {
     let pkexec = resolve_executable("pkexec", &["/run/wrappers/bin/pkexec"])?;
-    let nvidia_smi = resolve_executable(
-        "nvidia-smi",
-        &[
-            "/run/current-system/sw/bin/nvidia-smi",
-            "/run/opengl-driver/bin/nvidia-smi",
-        ],
-    )?;
+    let nvidia_smi = resolve_executable("nvidia-smi", NVIDIA_SMI_PATHS)?;
     let output = Command::new(pkexec)
         .arg(nvidia_smi)
         .args(args)
@@ -596,6 +589,14 @@ mod tests {
         assert_eq!(
             fan_target(7, GPU_TARGET_FAN_SPEED),
             "[fan:7]/GPUTargetFanSpeed"
+        );
+    }
+
+    #[test]
+    fn prefers_the_module_managed_nvidia_smi_wrapper() {
+        assert_eq!(
+            NVIDIA_SMI_PATHS.first().copied(),
+            Some("/run/current-system/sw/bin/nvidia-gpu-manager-nvidia-smi")
         );
     }
 

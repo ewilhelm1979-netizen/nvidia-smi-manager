@@ -23,7 +23,7 @@ let
 in
 rustPlatform.buildRustPackage {
   pname = "nvidia-gpu-manager";
-  version = "0.2.0";
+  version = "0.2.1";
   src = lib.cleanSourceWith {
     src = ../.;
     filter = path: type:

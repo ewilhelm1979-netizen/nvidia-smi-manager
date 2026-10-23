@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.2.1 - 2026-10-23
+
+### Fixed
+
+- Restored inventory and monitoring when the nixpkgs `patchelf` 0.19.2
+  regression makes the packaged NVIDIA utilities exit with SIGSEGV.
+- Re-patched the pristine, host-matched `nvidia-smi` binary with separate RPATH
+  and interpreter operations to avoid overlapping ELF load segments.
+
+### Security
+
+- The manager prefers a dedicated root-controlled NixOS system path instead of
+  accepting a user-profile or `PATH` fallback.
+- The compatibility wrapper verifies the loaded NVIDIA kernel driver version
+  against the packaged driver before monitoring or privileged power changes.
+
 ## 0.2.0 - 2026-09-30
 
 ### Added

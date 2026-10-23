@@ -3,7 +3,7 @@
 Native Rust GUI for monitoring and controlling one or more NVIDIA GPUs on
 NixOS. The application discovers every GPU reported by `nvidia-smi`, keeps
 state and history per UUID, and runs hardware queries outside the egui event
-loop. This document describes version `0.2.0`.
+loop. This document describes version `0.2.1`.
 
 ## Features
 
@@ -106,8 +106,15 @@ sudo nixos-rebuild switch --flake /etc/nixos#my-host
 ```
 
 The module installs the application, enables NVIDIA Settings support, and
-enables Polkit. KDE and GNOME normally provide a Polkit authentication agent;
-minimal window managers need to start one separately.
+enables Polkit. It also builds a host-driver-matched `nvidia-smi` compatibility
+binary from the pristine NVIDIA executable. This avoids the broken ELF layout
+caused by the nixpkgs `patchelf` 0.19.2 regression tracked in
+[NixOS/nixpkgs#576412](https://github.com/NixOS/nixpkgs/issues/576412). The
+wrapper checks that the loaded kernel driver version matches the packaged
+driver before it runs and is exposed only through a fixed system path.
+
+KDE and GNOME normally provide a Polkit authentication agent; minimal window
+managers need to start one separately.
 
 No passwordless sudo rule is needed or installed.
 

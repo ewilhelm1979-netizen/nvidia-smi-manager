@@ -1,6 +1,6 @@
 # Security model
 
-This document describes the security boundaries of NVIDIA GPU Manager 0.2.0.
+This document describes the security boundaries of NVIDIA GPU Manager 0.2.1.
 It is not a claim that the application or the NVIDIA driver is fully secure.
 
 ## Trust boundaries
@@ -15,6 +15,9 @@ The manager applies these controls:
   separate arguments. It does not use a shell, `sh -c`, or `bash -c`.
 - Executables are resolved only at fixed trusted NixOS paths. There is no
   fallback to a user-controlled `PATH`.
+- The NixOS module provides a root-controlled `nvidia-smi` compatibility path
+  built from the configured NVIDIA package. Its wrapper rejects a mismatch
+  between the loaded kernel driver and the packaged driver.
 - GPU UUIDs are syntactically validated before use in command arguments or
   NV-CONTROL target expressions.
 - Every write uses a fresh GPU inventory and identity check.
@@ -31,10 +34,11 @@ The manager applies these controls:
 
 ## Privilege boundary
 
-Power-limit changes use the fixed NixOS `pkexec` wrapper to invoke a fixed
-`nvidia-smi` path after UUID and range validation. Authentication remains
-interactive. This has a broader authorization surface than a purpose-built
-minimal helper, but avoids passwordless sudo and user-selected commands.
+Power-limit changes use the fixed NixOS `pkexec` wrapper to invoke the fixed
+module-managed `nvidia-smi` compatibility path after UUID and range validation.
+Authentication remains interactive. This has a broader authorization surface
+than a purpose-built minimal helper, but avoids passwordless sudo and
+user-selected commands.
 
 The module does not install `NOPASSWD` sudo rules, a setuid helper, or a broad
 custom Polkit rule. Fan and clock controls use the current user's NV-CONTROL
