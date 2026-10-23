@@ -20,6 +20,8 @@ The manager applies these controls:
   between the loaded kernel driver and the packaged driver.
 - The standalone package refuses to launch when that module-managed path is
   absent, instead of falling back to an affected or unqualified NVIDIA binary.
+- Runtime inventory refreshes and privileged writes use only that managed path,
+  so removing it from a live system cannot re-enable a raw-binary fallback.
 - GPU UUIDs are syntactically validated before use in command arguments or
   NV-CONTROL target expressions.
 - Every write uses a fresh GPU inventory and identity check.

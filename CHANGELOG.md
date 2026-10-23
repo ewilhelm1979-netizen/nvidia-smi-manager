@@ -10,6 +10,8 @@
   and interpreter operations to avoid overlapping ELF load segments.
 - Standalone package launches now fail closed with exit status 78 until the
   NixOS module has installed its host-matched compatibility wrapper.
+- A running manager also fails closed if that module-managed path disappears;
+  it never falls back to an unqualified system NVIDIA binary.
 
 ### Security
 

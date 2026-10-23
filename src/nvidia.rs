@@ -6,11 +6,7 @@ const GPU_FAN_CONTROL_STATE: &str = "GPUFanControlState";
 const GPU_TARGET_FAN_SPEED: &str = "GPUTargetFanSpeed";
 const CORE_OFFSET: &str = "GPUGraphicsClockOffsetAllPerformanceLevels";
 const MEMORY_OFFSET: &str = "GPUMemoryTransferRateOffsetAllPerformanceLevels";
-const NVIDIA_SMI_PATHS: &[&str] = &[
-    "/run/current-system/sw/bin/nvidia-gpu-manager-nvidia-smi",
-    "/run/current-system/sw/bin/nvidia-smi",
-    "/run/opengl-driver/bin/nvidia-smi",
-];
+const NVIDIA_SMI_PATHS: &[&str] = &["/run/current-system/sw/bin/nvidia-gpu-manager-nvidia-smi"];
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SettingRange {
@@ -593,10 +589,10 @@ mod tests {
     }
 
     #[test]
-    fn prefers_the_module_managed_nvidia_smi_wrapper() {
+    fn only_accepts_the_module_managed_nvidia_smi_wrapper() {
         assert_eq!(
-            NVIDIA_SMI_PATHS.first().copied(),
-            Some("/run/current-system/sw/bin/nvidia-gpu-manager-nvidia-smi")
+            NVIDIA_SMI_PATHS,
+            &["/run/current-system/sw/bin/nvidia-gpu-manager-nvidia-smi"]
         );
     }
 
