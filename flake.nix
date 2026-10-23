@@ -21,6 +21,26 @@
           nvidia-gpu-manager = pkgs.nvidia-gpu-manager;
         });
 
+      checks = forAllSystems (system:
+        let pkgs = import nixpkgs { inherit system; overlays = [ overlay ]; };
+        in {
+          standalone-requires-module = pkgs.runCommand "nvidia-gpu-manager-standalone-guard" { } ''
+            substitute ${pkgs.nvidia-gpu-manager}/bin/nvidia-gpu-manager guarded-manager \
+              --replace-fail /run/current-system/sw/bin/nvidia-gpu-manager-nvidia-smi \
+              /intentionally-missing/nvidia-gpu-manager-nvidia-smi
+            chmod +x guarded-manager
+
+            set +e
+            output="$(./guarded-manager 2>&1)"
+            status=$?
+            set -e
+
+            test "$status" -eq 78
+            printf '%s\n' "$output" | grep -F 'requires the NixOS module-managed nvidia-smi compatibility wrapper'
+            touch "$out"
+          '';
+        });
+
       devShells = forAllSystems (system:
         let pkgs = import nixpkgs { inherit system; };
         in {
