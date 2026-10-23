@@ -18,6 +18,8 @@ The manager applies these controls:
 - The NixOS module provides a root-controlled `nvidia-smi` compatibility path
   built from the configured NVIDIA package. Its wrapper rejects a mismatch
   between the loaded kernel driver and the packaged driver.
+- The standalone package refuses to launch when that module-managed path is
+  absent, instead of falling back to an affected or unqualified NVIDIA binary.
 - GPU UUIDs are syntactically validated before use in command arguments or
   NV-CONTROL target expressions.
 - Every write uses a fresh GPU inventory and identity check.

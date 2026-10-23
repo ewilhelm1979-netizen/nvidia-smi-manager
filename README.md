@@ -45,15 +45,22 @@ currently selected UUID. Histories, desired power limit, fan state, tuning
 values, and probed capabilities are maintained separately for each GPU. The UI
 is not limited to the three devices in this example; it supports `1..N` GPUs.
 
-## Try it locally
+## Standalone package
 
 ```bash
-nix run path:.
+nix build path:.
 ```
 
-The host must use the proprietary NVIDIA driver. Runtime commands are resolved
-only from trusted NixOS system paths; the application deliberately does not
-fall back to executables found through a user-controlled `PATH`.
+The package output is available for reproducible builds and CI, but it is not a
+supported first-install runtime path while the NVIDIA ELF workaround is
+required. `nix run path:.` exits with status 78 unless the NixOS module below
+has installed its host-driver-matched compatibility wrapper. This prevents a
+standalone launch from silently falling back to the affected system
+`nvidia-smi`.
+
+Runtime commands are resolved only from trusted NixOS system paths; the
+application deliberately does not fall back to executables found through a
+user-controlled `PATH`.
 
 ## Add it to NixOS
 

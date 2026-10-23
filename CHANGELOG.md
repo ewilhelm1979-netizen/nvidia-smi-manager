@@ -8,6 +8,8 @@
   regression makes the packaged NVIDIA utilities exit with SIGSEGV.
 - Re-patched the pristine, host-matched `nvidia-smi` binary with separate RPATH
   and interpreter operations to avoid overlapping ELF load segments.
+- Standalone package launches now fail closed with exit status 78 until the
+  NixOS module has installed its host-matched compatibility wrapper.
 
 ### Security
 
